@@ -19,7 +19,7 @@ using namespace std;
 int main (int argc, char *argv[]) {
 
 	vector<FIFORequestChannel*> channels;
-
+	/* Get Input from running file*/
 	int opt;
 	int p = -1;
 	double t = -1.0;
@@ -50,9 +50,11 @@ int main (int argc, char *argv[]) {
 		}
 	}
 
+	/* Set Up Server Command*/
 	string m_str = to_string(m);
 	char* serverCMD[] = {(char*) "./server", (char*) "-m", (char*) m_str.data(), nullptr};
 
+	/* Create and check fork*/
 	pid_t pid =  fork();
 	if(pid == -1)
 	{
@@ -60,15 +62,18 @@ int main (int argc, char *argv[]) {
         return 1;
 	}
 
+	/* if child proccess run server*/
 	if(pid == 0)
 	{
 		execvp(serverCMD[0], serverCMD);
 		return 0;
 	}
 
+	/* create control channel and push it to front of channels vector*/
     FIFORequestChannel controlChan("control", FIFORequestChannel::CLIENT_SIDE);
 	channels.push_back(&controlChan);
 
+	/* if create new channel push new channel to back of channels*/
 	if(new_chan)
 	{
 		MESSAGE_TYPE nc = NEWCHANNEL_MSG;
@@ -78,6 +83,8 @@ int main (int argc, char *argv[]) {
 		FIFORequestChannel* newChan = new FIFORequestChannel(channel_name, FIFORequestChannel::CLIENT_SIDE);
 		channels.push_back(newChan);
 	}
+
+	/*Use Channel currently at back of channels*/
 
 	FIFORequestChannel* chan =  channels.back();
 	// single datapoint
@@ -94,6 +101,7 @@ int main (int argc, char *argv[]) {
 		" is " << reply << endl;	
 		delete[] buf;
 	}
+	//first thousand lines of file
 	else if (p != -1)
 	{
 		double time = 0;
@@ -107,12 +115,14 @@ int main (int argc, char *argv[]) {
 
 		for(int i = 0; i < 1000; i++)
 		{
+			//get ecg 1
 			datamsg x(p, time, 1);
 			memcpy(buf, &x, sizeof(datamsg));
 			chan->cwrite(buf, sizeof(datamsg)); // question
 			double reply1;
 			chan->cread(&reply1, sizeof(double)); //answer
 
+			// get ecg 2
 			datamsg y(p, time, 2);
 			memcpy(buf, &y, sizeof(datamsg));
 			chan->cwrite(buf, sizeof(datamsg)); // question
@@ -126,12 +136,13 @@ int main (int argc, char *argv[]) {
 		delete[] buf;
 	}
 
-    // sending a non-sense message, you need to change this
+    // copy whole file
 	if(filename != "")
 	{
 		filemsg fm(0, 0);
 		string fname = filename;
 		
+		//get file length
 		int len = sizeof(filemsg) + (fname.size() + 1);
 		char* buf2 = new char[len];
 		memcpy(buf2, &fm, sizeof(filemsg));
@@ -140,19 +151,21 @@ int main (int argc, char *argv[]) {
 		int64_t filesize = 0;
 		chan->cread(&filesize, sizeof(int64_t));
 
-
+		//create file in recieved folder with same name
 		ofstream file( "received/" + fname);
 		if (!file.is_open()) {
 			cerr << " test Error opening file!" << endl;
 			return 1;
 		}
 
+		//loop through file by buffer size until we reach end of file
 		char* buf3 =  new char[m];
 		int64_t offset = 0;
 		int length;
 		int runtime = 0;
 		while(offset != filesize)
 		{
+			//set length of file grabbed so that we don't go over file length
 			runtime++;
 			if(offset + m > filesize)
 			{
@@ -163,6 +176,7 @@ int main (int argc, char *argv[]) {
 				length = m;
 			}
 
+			// get file data
 			filemsg* file_req =  (filemsg*) buf2;
 			file_req->offset = offset;
 			file_req->length = length;
@@ -171,12 +185,13 @@ int main (int argc, char *argv[]) {
 			file.write(buf3, length);
 			offset += length;
 		}
+		//clean up
 		file.close();
 		delete[] buf2;
 		delete[] buf3;
 	}
 	
-
+	//close new channel
 	if(new_chan)
 	{
 		MESSAGE_TYPE message = QUIT_MSG;
